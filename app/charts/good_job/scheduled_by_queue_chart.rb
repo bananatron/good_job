@@ -11,6 +11,16 @@ module GoodJob
       start_time = end_time - 1.day
       table_name = GoodJob::Job.table_name
 
+      filtered_queue_schedule_query = @filter.filtered_query
+        .except(:select, :order)
+        .select(
+          :queue_name,
+          Arel::Nodes::NamedFunction.new(
+            'CAST',
+            [Arel.sql("COALESCE(#{table_name}.scheduled_at, #{table_name}.created_at) AS timestamp")]
+          ).as('scheduled_at')
+        ).to_sql
+
       count_query = Arel.sql(GoodJob::Execution.pg_or_jdbc_query(<<~SQL.squish))
         SELECT *
         FROM generate_series(
@@ -24,7 +34,7 @@ module GoodJob
               queue_name,
               count(*) AS count
             FROM (
-              #{@filter.filtered_query.except(:select, :order).select('queue_name', "COALESCE(#{table_name}.scheduled_at, #{table_name}.created_at)::timestamp AS scheduled_at").to_sql}
+              #{filtered_queue_schedule_query}
             ) sources
             GROUP BY date_trunc('hour', scheduled_at), queue_name
         ) sources ON sources.scheduled_at = timestamp
